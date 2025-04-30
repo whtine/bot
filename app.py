@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__, template_folder='templates')
 
 # Конфигурация
-TOKEN = os.getenv("BOT_TOKEN", '8028944732:AAEvq0YJpXTsVoCMAyh948FU90-XNGjdx-Y')
+TOKEN = os.getenv("BOT_TOKEN", '8028944732:AAHRJR5Aa7kFku5V8yY388X5-Rmzew19T7g')
 ADMIN_CHAT_ID = '6956377285'
 DATABASE_URL = os.getenv("DATABASE_URL", 'postgresql://roblox_db_user:vjBfo3Vwigs5pnm107BhEkXe6AOy3FWF@dpg-cvr25cngi27c738j8c50-a.oregon-postgres.render.com/roblox_db')
 SITE_URL = os.getenv('SITE_URL', 'https://tg-bod.onrender.com')

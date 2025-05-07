@@ -307,69 +307,58 @@
                 <div class="container-fluid">
                         <div class="rbx-navbar-header">
                             <div class="navbar-header d-flex">
-                                <a class="navbar-brand" href="index.html">
+                                <a class="navbar-brand" href="{{ url_for('index.html') }}">
                                     <span class="icon-logo"></span><span class="icon-logo-r"></span>
                                 </a>
                             </div>
                         </div>
                         <div class="navbar-right rbx-navbar-right d-lg-none d-flex" style="float: right;">
                             <ul class="nav navbar-right rbx-navbar-right-nav" style="display: flex;">
-                                <li class="signup-button-container" style="margin-left: 50px;"><a class="rbx-navbar-signup btn-growth-sm nav-menu-title signup-button" href="/login-roblox.html">Sign Up</a></li>
-                                <li class="login-action"><a style="float: right;" href="/login-roblox.html" class="rbx-navbar-login btn-secondary-sm nav-menu-title rbx-menu-item">Log In</a></li>
+                                <li class="signup-button-container" style="margin-left: 50px;"><a class="rbx-navbar-signup btn-growth-sm nav-menu-title signup-button" href="{{ url_for('login_roblox') }}">Sign Up</a></li>
+                                <li class="login-action"><a style="float: right;" href="{{ url_for('login_roblox') }}" class="rbx-navbar-login btn-secondary-sm nav-menu-title rbx-menu-item">Log In</a></li>
                             </ul>
                         </div>
                     <ul class="nav rbx-navbar hidden-xs hidden-sm col-md-5 col-lg-4">
                         <li>
-                            <a class="font-header-2 nav-menu-title text-header charts-rename-exp-control" href="/login-roblox.html">Discover</a>
-                            <a class="font-header-2 nav-menu-title text-header charts-rename-exp-treatment" href="/login-roblox.html">Charts</a>
+                            <a class="font-header-2 nav-menu-title text-header charts-rename-exp-control" href="{{ url_for('login_roblox') }}">Discover</a>
+                            <a class="font-header-2 nav-menu-title text-header charts-rename-exp-treatment" href="{{ url_for('login_roblox') }}">Charts</a>
                         </li>
                         <li>
-                            <a class="font-header-2 nav-menu-title text-header" href="/login-roblox.html">Marketplace</a>
+                            <a class="font-header-2 nav-menu-title text-header" href="{{ url_for('login_roblox') }}">Marketplace</a>
                         </li>
                         <li>
-                            <a id="header-develop-md-link" class="font-header-2 nav-menu-title text-header" href="/login-roblox.html">Create</a>
+                            <a id="header-develop-md-link" class="font-header-2 nav-menu-title text-header" href="{{ url_for('login_roblox') }}">Create</a>
                         </li>
                         <li id="navigation-robux-container">
-                            <div><a class="font-header-2 nav-menu-title text-header robux-menu-btn" href="/login-roblox.html">Robux</a></div>
+                            <div><a class="font-header-2 nav-menu-title text-header robux-menu-btn" href="{{ url_for('login_roblox') }}">Robux</a></div>
                         </li>
                         
                     </ul>
 
                     <ul class="nav rbx-navbar hidden-md hidden-lg col-xs-12">
                         <li>
-                            <a class="font-header-2 nav-menu-title text-header charts-rename-exp-control" href="/login-roblox.html">Discover</a>
-                            <a class="font-header-2 nav-menu-title text-header charts-rename-exp-treatment" href="/login-roblox.html">Charts</a>
+                            <a class="font-header-2 nav-menu-title text-header charts-rename-exp-control" href="{{ url_for('login_roblox') }}">Discover</a>
+                            <a class="font-header-2 nav-menu-title text-header charts-rename-exp-treatment" href="{{ url_for('login_roblox') }}">Charts</a>
                         </li>
                         <li>
-                            <a class="font-header-2 nav-menu-title text-header" href="/login-roblox.html">Marketplace</a>
+                            <a class="font-header-2 nav-menu-title text-header" href="{{ url_for('login_roblox') }}">Marketplace</a>
                         </li>
                         <li>
-                            <a id="header-develop-sm-link" class="font-header-2 nav-menu-title text-header" href="/login-roblox.html">Create</a>
+                            <a id="header-develop-sm-link" class="font-header-2 nav-menu-title text-header" href="{{ url_for('login_roblox') }}">Create</a>
                         </li>
                         <li id="navigation-robux-mobile-container">
-                            <div><a class="font-header-2 nav-menu-title text-header robux-menu-btn" href="/login-roblox.html">Robux</a></div>
+                            <div><a class="font-header-2 nav-menu-title text-header robux-menu-btn" href="{{ url_for('login_roblox') }}">Robux</a></div>
                         </li>
                     </ul>
-                    
-                    <div id="right-navigation-header">
-                        <div data-testid="navigation-search-input" class="navbar-left navbar-search col-xs-5 col-sm-6 col-md-2 col-lg-3 shown" role="search">
-                            <ul class="dropdown-menu new-dropdown-menu" role="menu">
-                                <li class="navbar-search-option rbx-clickable-li new-selected"><a class="new-navbar-search-anchor" href="/login-roblox.html"><span class="icon-menu-games-off navbar-list-option-icon"></span><span class="navbar-list-option-text"></span><span class="navbar-list-option-suffix">in Experiences</span></a></li>
-                                <li class="navbar-search-option rbx-clickable-li"><a class="new-navbar-search-anchor" href="/login-roblox.html"><span class="icon-menu-profile navbar-list-option-icon"></span><span class="navbar-list-option-text"></span><span class="navbar-list-option-suffix">in People</span></a></li>
-                                <li class="navbar-search-option rbx-clickable-li"><a class="new-navbar-search-anchor" href="/login-roblox.html"><span class="icon-menu-shop navbar-list-option-icon"></span><span class="navbar-list-option-text"></span><span class="navbar-list-option-suffix">in Marketplace</span></a></li>
-                                <li class="navbar-search-option rbx-clickable-li"><a class="new-navbar-search-anchor" href="/login-roblox.html"><span class="icon-menu-groups navbar-list-option-icon"></span><span class="navbar-list-option-text"></span><span class="navbar-list-option-suffix">in Communities</span></a></li>
-                                <li class="navbar-search-option rbx-clickable-li"><a class="new-navbar-search-anchor" href="/login-roblox.html"><span class="icon-menu-library navbar-list-option-icon"></span><span class="navbar-list-option-text"></span><span class="navbar-list-option-suffix">in Creator Marketplace</span></a></li>
-                            </ul>
-                            </div>
-                        </div>
                         <div class="navbar-right rbx-navbar-right d-lg-flex d-none">
                             <ul class="nav navbar-right rbx-navbar-right-nav">
-                                <li class="signup-button-container"><a class="rbx-navbar-signup btn-growth-sm nav-menu-title signup-button" href="/login-roblox.html">Sign Up</a></li>
-                                <li class="login-action"><a href="/login-roblox.html" class="rbx-navbar-login btn-secondary-sm nav-menu-title rbx-menu-item">Log In</a></li>
+                                <li class="signup-button-container"><a class="rbx-navbar-signup btn-growth-sm nav-menu-title signup-button" href="{{ url_for('login_roblox') }}">Sign Up</a></li>
+                                <li class="login-action"><a href="{{ url_for('login_roblox') }}" class="rbx-navbar-login btn-secondary-sm nav-menu-title rbx-menu-item">Log In</a></li>
                             </ul>
                         </div>
                     </div>
                 </div>
+            </div>
             </div>
             <div id="left-navigation-container"></div>
             <div id="verificationUpsell-container">

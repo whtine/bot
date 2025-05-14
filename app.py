@@ -468,7 +468,7 @@ def index():
     return render_template('index.html')
 
 @app.route('/telegram-main', endpoint='telegram_main')
-def show_404():
+def telegram_main():
     logger.info("Запрос на /telegram-main")
     return render_template('telegram-main')
 

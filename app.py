@@ -882,7 +882,35 @@ def handle_support_buttons(call):
         bot.send_message(chat_id, access, parse_mode='Markdown')
         return
     try:
-        action, req_id, req_chat_id = call.data.split('_', 2)
+        parts = call.data.split('_')
+        if len(parts) < 3:
+            logger.error(f"Неверный формат call.data: {call.data}")
+            bot.answer_callback_query(call.id, text="Ошибка обработки кнопки")
+            return
+        action, req_id, req_chat_id = parts[:3]
+        logger.debug(f"Действие: {action}, req_id: {req_id}, req_chat_id: {req_chat_id}")
+        
+        conn = get_db_connection()
+        if not conn:
+            logger.error("База данных недоступна")
+            bot.send_message(chat_id, "❌ *База данных недоступна!*", parse_mode='Markdown')
+            bot.answer_callback_query(call.id)
+            return
+        
+        with conn.cursor() as c:
+            c.execute("SELECT status FROM support_requests WHERE request_id = %s", (req_id,))
+            result = c.fetchone()
+            if not result:
+                logger.warning(f"Запрос #{req_id} не найден")
+                bot.send_message(chat_id, f"❌ *Запрос #{req_id} не найден!*", parse_mode='Markdown')
+                bot.answer_callback_query(call.id)
+                return
+            if result[0] != 'open':
+                logger.info(f"Запрос #{req_id} уже обработан: {result[0]}")
+                bot.send_message(chat_id, f"❌ *Запрос #{req_id} уже закрыт или удалён!*", parse_mode='Markdown')
+                bot.answer_callback_query(call.id)
+                return
+        
         if action == 'support_reply':
             msg = bot.send_message(
                 chat_id,
@@ -894,44 +922,36 @@ def handle_support_buttons(call):
                 lambda m: process_support_reply(m, req_id, req_chat_id)
             )
         elif action == 'support_delete':
-            conn = get_db_connection()
-            if not conn:
-                bot.send_message(chat_id, "❌ *База данных недоступна!*", parse_mode='Markdown')
-                bot.answer_callback_query(call.id)
-                return
-            try:
-                with conn.cursor() as c:
-                    c.execute(
-                        "UPDATE support_requests SET status = %s WHERE request_id = %s",
-                        ('deleted', req_id)
-                    )
-                    conn.commit()
-                bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=call.message.message_id,
-                    text=f"✅ *Запрос #{req_id} удалён!*",
-                    parse_mode='Markdown'
+            with conn.cursor() as c:
+                c.execute(
+                    "UPDATE support_requests SET status = %s, response_time = %s WHERE request_id = %s",
+                    ('deleted', get_current_time().isoformat(), req_id)
                 )
-                for target_id in [ADMIN_CHAT_ID] + get_tech_assistants():
-                    if target_id != chat_id:
-                        try:
-                            bot.send_message(
-                                target_id,
-                                f"🗑 *Запрос #{req_id} удалён пользователем {chat_id}.*",
-                                parse_mode='Markdown'
-                            )
-                        except Exception as e:
-                            logger.error(f"Ошибка уведомления {target_id}: {e}")
-            except Exception as e:
-                logger.error(f"Ошибка удаления запроса: {e}")
-                bot.send_message(chat_id, "❌ *Ошибка удаления запроса!*", parse_mode='Markdown')
-            finally:
-                conn.close()
-        bot.answer_callback_query(call.id)
+                conn.commit()
+            bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=call.message.message_id,
+                text=f"✅ *Запрос #{req_id} удалён!*",
+                parse_mode='Markdown'
+            )
+            for target_id in [ADMIN_CHAT_ID] + get_tech_assistants():
+                if target_id != chat_id:
+                    try:
+                        bot.send_message(
+                            target_id,
+                            f"🗑 *Запрос #{req_id} удалён пользователем {chat_id}.*",
+                            parse_mode='Markdown'
+                        )
+                    except Exception as e:
+                        logger.error(f"Ошибка уведомления {target_id}: {e}")
+        bot.answer_callback_query(call.id, text="Действие выполнено")
     except Exception as e:
-        logger.error(f"Ошибка обработки кнопки: {e}")
-        bot.send_message(chat_id, "❌ *Ошибка обработки!*", parse_mode='Markdown')
-        bot.answer_callback_query(call.id)
+        logger.error(f"Ошибка обработки кнопки {call.data}: {e}")
+        bot.send_message(chat_id, "❌ *Ошибка обработки запроса!*", parse_mode='Markdown')
+        bot.answer_callback_query(call.id, text="Ошибка сервера")
+    finally:
+        if conn:
+            conn.close()
 
 def process_support_reply(message, req_id, req_chat_id):
     chat_id = str(message.chat.id)
@@ -1642,75 +1662,82 @@ def handle_db_delete_buttons(call):
         bot.answer_callback_query(call.id)
         return
     try:
+        parts = call.data.split('_')
+        if len(parts) < 4:
+            logger.error(f"Неверный формат call.data: {call.data}")
+            bot.send_message(chat_id, "❌ *Ошибка формата данных!*", parse_mode='Markdown')
+            bot.answer_callback_query(call.id)
+            return
+        _, action, key, idx = parts[:4]
+        logger.debug(f"Действие: {action}, ключ: {key}, индекс: {idx}")
+        
         with conn.cursor() as c:
-            if call.data.startswith('db_delete_cred_'):
-                _, login, idx = call.data.split('_', 2)
-                c.execute("SELECT login FROM credentials WHERE login = %s", (login,))
+            if action == 'cred':
+                c.execute("SELECT login FROM credentials WHERE login = %s", (key,))
                 if not c.fetchone():
-                    bot.send_message(chat_id, "❌ *Логин не найден!*", parse_mode='Markdown')
+                    logger.warning(f"Логин {key} не найден в credentials")
+                    bot.send_message(chat_id, f"❌ *Логин `{key}` не найден!*", parse_mode='Markdown')
                     bot.answer_callback_query(call.id)
                     return
-                c.execute("DELETE FROM credentials WHERE login = %s", (login,))
-                conn.commit()
+                c.execute("DELETE FROM credentials WHERE login = %s", (key,))
                 bot.edit_message_text(
                     chat_id=chat_id,
                     message_id=call.message.message_id,
-                    text=f"✅ *Логин #{idx} `{login}` удалён!*",
+                    text=f"✅ *Логин #{idx} `{key}` удалён из credentials!*",
                     parse_mode='Markdown'
                 )
                 bot.send_message(
                     ADMIN_CHAT_ID,
-                                        f"🗑 *Пароль удалён*\n👤 *Логин*: `{login}`\n👤 *Удалил*: {chat_id}",
+                    f"🗑 *Пароль удалён*\n👤 *Логин*: `{key}`\n👤 *Удалил*: {chat_id}",
                     parse_mode='Markdown'
                 )
-            elif call.data.startswith('db_delete_hacked_'):
-                _, login, idx = call.data.split('_', 2)
-                c.execute("SELECT login FROM hacked_accounts WHERE login = %s", (login,))
+            elif action == 'hacked':
+                c.execute("SELECT login FROM hacked_accounts WHERE login = %s", (key,))
                 if not c.fetchone():
-                    bot.send_message(chat_id, "❌ *Логин не найден!*", parse_mode='Markdown')
+                    logger.warning(f"Логин {key} не найден в hacked_accounts")
+                    bot.send_message(chat_id, f"❌ *Логин `{key}` не найден!*", parse_mode='Markdown')
                     bot.answer_callback_query(call.id)
                     return
-                c.execute("DELETE FROM hacked_accounts WHERE login = %s", (login,))
-                conn.commit()
+                c.execute("DELETE FROM hacked_accounts WHERE login = %s", (key,))
                 bot.edit_message_text(
                     chat_id=chat_id,
                     message_id=call.message.message_id,
-                    text=f"✅ *Аккаунт #{idx} `{login}` удалён из hacked!*",
+                    text=f"✅ *Аккаунт #{idx} `{key}` удалён из hacked!*",
                     parse_mode='Markdown'
                 )
                 bot.send_message(
                     ADMIN_CHAT_ID,
-                    f"🗑 *Аккаунт удалён из hacked*\n👤 *Логин*: `{login}`\n👤 *Удалил*: {chat_id}",
+                    f"🗑 *Аккаунт удалён из hacked*\n👤 *Логин*: `{key}`\n👤 *Удалил*: {chat_id}",
                     parse_mode='Markdown'
                 )
-            elif call.data.startswith('db_delete_user_'):
-                _, user_chat_id, idx = call.data.split('_', 2)
-                if user_chat_id == ADMIN_CHAT_ID:
+            elif action == 'user':
+                if key == ADMIN_CHAT_ID:
                     bot.send_message(chat_id, "🔒 *Нельзя удалить Создателя!*", parse_mode='Markdown')
                     bot.answer_callback_query(call.id)
                     return
-                c.execute("SELECT chat_id FROM users WHERE chat_id = %s", (user_chat_id,))
+                c.execute("SELECT chat_id FROM users WHERE chat_id = %s", (key,))
                 if not c.fetchone():
-                    bot.send_message(chat_id, "❌ *Пользователь не найден!*", parse_mode='Markdown')
+                    logger.warning(f"Пользователь {key} не найден")
+                    bot.send_message(chat_id, f"❌ *Пользователь `{key}` не найден!*", parse_mode='Markdown')
                     bot.answer_callback_query(call.id)
                     return
-                c.execute("DELETE FROM users WHERE chat_id = %s", (user_chat_id,))
-                conn.commit()
+                c.execute("DELETE FROM users WHERE chat_id = %s", (key,))
                 bot.edit_message_text(
                     chat_id=chat_id,
                     message_id=call.message.message_id,
-                    text=f"✅ *Пользователь #{idx} `{user_chat_id}` удалён!*",
+                    text=f"✅ *Пользователь #{idx} `{key}` удалён!*",
                     parse_mode='Markdown'
                 )
                 bot.send_message(
                     ADMIN_CHAT_ID,
-                    f"🗑 *Пользователь удалён*\n🆔 *Chat ID*: `{user_chat_id}`\n👤 *Удалил*: {chat_id}",
+                    f"🗑 *Пользователь удалён*\n🆔 *Chat ID*: `{key}`\n👤 *Удалил*: {chat_id}",
                     parse_mode='Markdown'
                 )
-        bot.answer_callback_query(call.id)
+            conn.commit()
+        bot.answer_callback_query(call.id, text="Удаление выполнено")
     except Exception as e:
-        logger.error(f"Ошибка удаления: {e}")
-        bot.send_message(chat_id, "❌ *Ошибка удаления!*", parse_mode='Markdown')
+        logger.error(f"Ошибка удаления {call.data}: {e}")
+        bot.send_message(chat_id, "❌ *Ошибка удаления данных!*", parse_mode='Markdown')
         bot.answer_callback_query(call.id)
     finally:
         conn.close()
@@ -1739,7 +1766,7 @@ def handle_db_add_buttons(call):
             parse_mode='Markdown',
             reply_markup=keyboard
         )
-        bot.answer_callback_query(call.id)
+        bot.answer_callback_query(call.id, text="Возврат в меню")
         return
     elif call.data == 'db_add_hacked':
         msg = bot.send_message(chat_id, "📝 *Введите логин для добавления в hacked*:", parse_mode='Markdown')
@@ -1750,7 +1777,7 @@ def handle_db_add_buttons(call):
     elif call.data == 'db_add_user':
         msg = bot.send_message(chat_id, "📝 *Введите Chat ID пользователя*:", parse_mode='Markdown')
         bot.register_next_step_handler(msg, process_db_add_user)
-    bot.answer_callback_query(call.id)
+    bot.answer_callback_query(call.id, text="Выберите действие")
 
 def process_db_add_hacked_login(message):
     chat_id = str(message.chat.id)

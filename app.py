@@ -883,22 +883,29 @@ def handle_support_buttons(call):
         return
     try:
         parts = call.data.split('_')
-        if len(parts) < 3:
+        if len(parts) != 4 or parts[0] != 'support':
             logger.error(f"Неверный формат call.data: {call.data}")
             bot.answer_callback_query(call.id, text="Ошибка обработки кнопки")
             return
-        action, req_id, req_chat_id = parts[:3]
+        action = parts[1]  # 'reply' или 'delete'
+        req_id = parts[2]
+        req_chat_id = parts[3]
         logger.debug(f"Действие: {action}, req_id: {req_id}, req_chat_id: {req_chat_id}")
-        
+
+        if not req_id.isdigit():
+            logger.error(f"req_id не является числом: {req_id}")
+            bot.answer_callback_query(call.id, text="Неверный ID запроса")
+            return
+
         conn = get_db_connection()
         if not conn:
             logger.error("База данных недоступна")
             bot.send_message(chat_id, "❌ *База данных недоступна!*", parse_mode='Markdown')
             bot.answer_callback_query(call.id)
             return
-        
+
         with conn.cursor() as c:
-            c.execute("SELECT status FROM support_requests WHERE request_id = %s", (req_id,))
+            c.execute("SELECT status FROM support_requests WHERE request_id = %s", (int(req_id),))
             result = c.fetchone()
             if not result:
                 logger.warning(f"Запрос #{req_id} не найден")
@@ -910,8 +917,8 @@ def handle_support_buttons(call):
                 bot.send_message(chat_id, f"❌ *Запрос #{req_id} уже закрыт или удалён!*", parse_mode='Markdown')
                 bot.answer_callback_query(call.id)
                 return
-        
-        if action == 'support_reply':
+
+        if action == 'reply':
             msg = bot.send_message(
                 chat_id,
                 f"📝 *Введите ответ на запрос #{req_id} для пользователя {req_chat_id}*:",
@@ -921,11 +928,11 @@ def handle_support_buttons(call):
                 msg,
                 lambda m: process_support_reply(m, req_id, req_chat_id)
             )
-        elif action == 'support_delete':
+        elif action == 'delete':
             with conn.cursor() as c:
                 c.execute(
                     "UPDATE support_requests SET status = %s, response_time = %s WHERE request_id = %s",
-                    ('deleted', get_current_time().isoformat(), req_id)
+                    ('deleted', get_current_time().isoformat(), int(req_id))
                 )
                 conn.commit()
             bot.edit_message_text(
@@ -1065,66 +1072,32 @@ def hacked_cmd(message):
 @bot.message_handler(commands=['passwords'])
 def passwords_cmd(message):
     chat_id = str(message.chat.id)
-    username = sanitize_input(message.from_user.username) or "Неизвестно"
-    logger.info(f"/passwords от {chat_id}")
+    logger.info(f"Команда /passwords от {chat_id}")
     access = check_access(chat_id, 'passwords')
     if access:
         bot.reply_to(message, access, parse_mode='Markdown')
         return
     conn = get_db_connection()
     if not conn:
-        bot.reply_to(message, "❌ *База данных недоступна! Попробуйте позже.*", parse_mode='Markdown')
+        bot.reply_to(message, "❌ *База данных недоступна!*", parse_mode='Markdown')
         return
     try:
         with conn.cursor() as c:
-            c.execute("SELECT login, password, added_time FROM credentials")
+            c.execute("SELECT login, password, added_time FROM credentials ORDER BY added_time DESC")
             credentials = c.fetchall()
-            if not credentials:
-                bot.reply_to(message, "📭 *Список паролей пуст.*", parse_mode='Markdown')
-            else:
-                for idx, (login, password, added_time) in enumerate(credentials, 1):
-                    response = (
-                        f"🔐 *Логин #{idx}*: `{login}`\n"
-                        f"🔒 *Пароль*: `{password}`\n"
-                        f"🕒 *Добавлено*: {added_time or 'Неизвестно'}\n"
-                    )
-                    keyboard = types.InlineKeyboardMarkup()
-                    if get_user(chat_id)['prefix'] in ["Админ", "Создатель", "ТехПомощник"]:
-                        keyboard.add(
-                            types.InlineKeyboardButton(
-                                f"🗑 Удалить #{idx}",
-                                callback_data=f"delete_cred_{login}_{idx}"
-                            )
-                        )
-                    bot.send_message(
-                        chat_id,
-                        response,
-                        reply_markup=keyboard,
-                        parse_mode='Markdown'
-                    )
-            user = get_user(chat_id)
-            keyboard = types.InlineKeyboardMarkup()
-            keyboard.add(
-                types.InlineKeyboardButton("➕ Добавить в hacked", callback_data="add_to_hacked")
-            )
-            if user and user['prefix'] in ["Админ", "Создатель", "ТехПомощник"]:
-                keyboard.add(
-                    types.InlineKeyboardButton("➕ Добавить пароль", callback_data="add_cred")
-                )
-            bot.send_message(
-                chat_id,
-                "⚙️ *Выберите действие*:",
-                reply_markup=keyboard,
-                parse_mode='Markdown'
-            )
-            if user:
-                save_user(chat_id, user['prefix'], user['subscription_end'], str(message.from_user.id), username)
+        if not credentials:
+            bot.reply_to(message, "📂 *Нет сохранённых паролей.*", parse_mode='Markdown')
+            return
+        response = "🔐 *Список паролей*:\n"
+        for idx, (login, password, added_time) in enumerate(credentials, 1):
+            response += f"#{idx} `{login}`: `{password}` (Добавлен: {added_time})\n"
+        bot.reply_to(message, response, parse_mode='Markdown')
     except Exception as e:
-        logger.error(f"Ошибка /passwords: {e}")
-        bot.reply_to(message, "❌ *Ошибка при загрузке данных!*", parse_mode='Markdown')
+        logger.error(f"Ошибка получения паролей: {e}")
+        bot.reply_to(message, "❌ *Ошибка получения паролей!*", parse_mode='Markdown')
     finally:
         conn.close()
-
+        
 @bot.callback_query_handler(func=lambda call: call.data.startswith('delete_cred_') or call.data in ['add_to_hacked', 'add_cred'])
 def handle_passwords_buttons(call):
     chat_id = str(call.message.chat.id)
@@ -1663,14 +1636,16 @@ def handle_db_delete_buttons(call):
         return
     try:
         parts = call.data.split('_')
-        if len(parts) < 4:
+        if len(parts) < 4 or parts[0] != 'db' or parts[1] != 'delete':
             logger.error(f"Неверный формат call.data: {call.data}")
             bot.send_message(chat_id, "❌ *Ошибка формата данных!*", parse_mode='Markdown')
             bot.answer_callback_query(call.id)
             return
-        _, action, key, idx = parts[:4]
+        action = parts[2]  # 'cred', 'hacked', 'user'
+        key = parts[3]
+        idx = parts[4] if len(parts) > 4 else '1'
         logger.debug(f"Действие: {action}, ключ: {key}, индекс: {idx}")
-        
+
         with conn.cursor() as c:
             if action == 'cred':
                 c.execute("SELECT login FROM credentials WHERE login = %s", (key,))
@@ -1680,6 +1655,13 @@ def handle_db_delete_buttons(call):
                     bot.answer_callback_query(call.id)
                     return
                 c.execute("DELETE FROM credentials WHERE login = %s", (key,))
+                affected_rows = c.rowcount
+                conn.commit()
+                if affected_rows == 0:
+                    logger.error(f"Не удалось удалить логин {key}: запись не затронута")
+                    bot.send_message(chat_id, f"❌ *Ошибка удаления `{key}`!*", parse_mode='Markdown')
+                    bot.answer_callback_query(call.id)
+                    return
                 bot.edit_message_text(
                     chat_id=chat_id,
                     message_id=call.message.message_id,
@@ -1699,6 +1681,7 @@ def handle_db_delete_buttons(call):
                     bot.answer_callback_query(call.id)
                     return
                 c.execute("DELETE FROM hacked_accounts WHERE login = %s", (key,))
+                conn.commit()
                 bot.edit_message_text(
                     chat_id=chat_id,
                     message_id=call.message.message_id,
@@ -1722,6 +1705,7 @@ def handle_db_delete_buttons(call):
                     bot.answer_callback_query(call.id)
                     return
                 c.execute("DELETE FROM users WHERE chat_id = %s", (key,))
+                conn.commit()
                 bot.edit_message_text(
                     chat_id=chat_id,
                     message_id=call.message.message_id,
@@ -1733,14 +1717,14 @@ def handle_db_delete_buttons(call):
                     f"🗑 *Пользователь удалён*\n🆔 *Chat ID*: `{key}`\n👤 *Удалил*: {chat_id}",
                     parse_mode='Markdown'
                 )
-            conn.commit()
         bot.answer_callback_query(call.id, text="Удаление выполнено")
     except Exception as e:
         logger.error(f"Ошибка удаления {call.data}: {e}")
         bot.send_message(chat_id, "❌ *Ошибка удаления данных!*", parse_mode='Markdown')
         bot.answer_callback_query(call.id)
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('db_add_') or call.data == 'db_main_menu')
 def handle_db_add_buttons(call):

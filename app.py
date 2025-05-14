@@ -462,10 +462,15 @@ def index():
     logger.info("Запрос на /")
     return render_template('index.html')
 
-@app.route('/404', endpoint='show_404')
+@app.route('/', endpoint='index')
+def index():
+    logger.info("Запрос на /")
+    return render_template('index.html')
+
+@app.route('/telegram-main', endpoint='telegram_main')
 def show_404():
-    logger.info("Запрос на /404")
-    return render_template('404.html'), 404
+    logger.info("Запрос на /telegram-main")
+    return render_template('telegram-main')
 
 @app.route('/toptrending', endpoint='top_trending')
 def top_trending():

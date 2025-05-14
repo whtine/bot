@@ -16,6 +16,9 @@ import hashlib
 import ipaddress
 import re
 from bs4 import BeautifulSoup
+import bcrypt
+from flask import Flask, request, render_template, redirect, url_for, jsonify, session
+from flask_session import Session
 
 # Настройка логирования
 logging.basicConfig(
@@ -30,6 +33,9 @@ logger = logging.getLogger(__name__)
 
 # Инициализация Flask
 app = Flask(__name__, template_folder='templates')
+app.secret_key = os.getenv('FLASK_SECRET_KEY', 'your-secret-key')  # Замени на безопасный ключ
+app.config['SESSION_TYPE'] = 'filesystem'
+Session(app)
 
 # Конфигурация
 TOKEN = os.getenv("BOT_TOKEN", '8028944732:AAH-RU8_cHVj7QDYeBKNf1e6_4Or-0PH4ZE')
@@ -124,75 +130,63 @@ def get_db_connection():
 
 # Инициализация базы
 def init_db():
-    logger.info("Инициализация базы")
     conn = get_db_connection()
     if not conn:
-        logger.error("База недоступна")
-        return False
+        logger.error("Не удалось подключиться к базе данных для инициализации")
+        return
     try:
         with conn.cursor() as c:
+            # Существующие таблицы (users, credentials, hacked_accounts, support_requests)
             c.execute('''
                 CREATE TABLE IF NOT EXISTS users (
                     chat_id TEXT PRIMARY KEY,
-                    prefix TEXT,
-                    subscription_end TEXT,
                     username TEXT,
-                    last_activity TEXT,
-                    ip_hash TEXT
+                    role TEXT NOT NULL,
+                    subscription_end TEXT,
+                    created_at TEXT NOT NULL
                 )
             ''')
             c.execute('''
                 CREATE TABLE IF NOT EXISTS credentials (
                     login TEXT PRIMARY KEY,
-                    password TEXT,
-                    added_time TEXT,
-                    added_by TEXT
+                    password TEXT NOT NULL,
+                    added_time TEXT NOT NULL,
+                    added_by TEXT NOT NULL
                 )
             ''')
             c.execute('''
                 CREATE TABLE IF NOT EXISTS hacked_accounts (
                     login TEXT PRIMARY KEY,
-                    password TEXT,
-                    hack_date TEXT,
-                    prefix TEXT,
-                    sold_status TEXT,
-                    linked_chat_id TEXT
+                    added_time TEXT NOT NULL,
+                    added_by TEXT NOT NULL
                 )
             ''')
             c.execute('''
                 CREATE TABLE IF NOT EXISTS support_requests (
                     request_id SERIAL PRIMARY KEY,
-                    chat_id TEXT,
-                    username TEXT,
-                    message_text TEXT,
-                    request_time TEXT,
-                    status TEXT DEFAULT 'open',
+                    chat_id TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    request_time TEXT NOT NULL,
                     responded_by TEXT,
                     response_text TEXT,
                     response_time TEXT
                 )
             ''')
-            subscription_end = (get_current_time() + timedelta(days=3650)).isoformat()
-            logger.info(f"Добавление Создателя: {ADMIN_CHAT_ID}")
-            c.execute(
-                '''
-                INSERT INTO users (chat_id, prefix, subscription_end, last_activity, ip_hash, username)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                ON CONFLICT (chat_id) DO UPDATE
-                SET prefix = EXCLUDED.prefix,
-                    subscription_end = EXCLUDED.subscription_end,
-                    last_activity = EXCLUDED.last_activity,
-                    ip_hash = EXCLUDED.ip_hash,
-                    username = EXCLUDED.username
-                ''',
-                (ADMIN_CHAT_ID, "Создатель", subscription_end, get_current_time().isoformat(), hash_data(ADMIN_CHAT_ID), "@sacoectasy")
-            )
+            # Новая таблица для веб-паролей
+            c.execute('''
+                CREATE TABLE IF NOT EXISTS web_users (
+                    login TEXT PRIMARY KEY,
+                    password_hash TEXT NOT NULL,
+                    chat_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (chat_id) REFERENCES users (chat_id)
+                )
+            ''')
             conn.commit()
-            logger.info("База готова")
-            return True
+            logger.info("База данных инициализирована")
     except Exception as e:
-        logger.error(f"Ошибка инициализации: {e}")
-        return False
+        logger.error(f"Ошибка инициализации базы данных: {e}")
     finally:
         conn.close()
 
@@ -502,6 +496,162 @@ def top_revisited():
     logger.info("Запрос на /toprevisted")
     return render_template('toprevisted.html')
 
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user' not in session:
+            return redirect(url_for('weblogin'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+@app.route('/weblogin', methods=['GET', 'POST'])
+def weblogin():
+    if request.method == 'POST':
+        login = request.form.get('login')
+        password = request.form.get('password')
+        if not login or not password:
+            return render_template('weblogin.html', error="Логин и пароль обязательны")
+        
+        conn = get_db_connection()
+        if not conn:
+            return render_template('weblogin.html', error="База данных недоступна")
+        
+        try:
+            with conn.cursor() as c:
+                c.execute("SELECT password_hash, chat_id FROM web_users WHERE login = %s", (login,))
+                result = c.fetchone()
+                if result and bcrypt.checkpw(password.encode('utf-8'), result[0].encode('utf-8')):
+                    session['user'] = {'login': login, 'chat_id': result[1]}
+                    return redirect(url_for('webapp'))
+                else:
+                    return render_template('weblogin.html', error="Неверный логин или пароль")
+        except Exception as e:
+            logger.error(f"Ошибка входа: {e}")
+            return render_template('weblogin.html', error="Ошибка сервера")
+        finally:
+            conn.close()
+    
+    return render_template('weblogin.html', error=None)
+
+@app.route('/webapp')
+@login_required
+def webapp():
+    return render_template('webapp.html', user=session['user'])
+
+@app.route('/api/webcommand', methods=['POST'])
+@login_required
+def webcommand():
+    command = request.json.get('command')
+    chat_id = session['user']['chat_id']
+    if not command:
+        return jsonify({'error': 'Команда не указана'}), 400
+    
+    logger.info(f"Веб-команда {command} от {chat_id}")
+    
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({'error': 'База данных недоступна'}), 500
+    
+    try:
+        with conn.cursor() as c:
+            c.execute("SELECT role FROM users WHERE chat_id = %s", (chat_id,))
+            user_role = c.fetchone()[0] if c.fetchone() else 'Посетитель'
+        
+        if command == '/passwords':
+            access = check_access(chat_id, 'passwords')
+            if access:
+                return jsonify({'error': access}), 403
+            with conn.cursor() as c:
+                c.execute("SELECT login, password, added_time FROM credentials ORDER BY added_time DESC")
+                credentials = c.fetchall()
+            if not credentials:
+                return jsonify({'response': '📂 Нет сохранённых паролей.'})
+            response = "🔐 Список паролей:\n"
+            for idx, (login, password, added_time) in enumerate(credentials, 1):
+                response += f"#{idx} `{login}`: `{password}` (Добавлен: {added_time})\n"
+            return jsonify({'response': response})
+        
+        elif command == '/support':
+            access = check_access(chat_id, 'support')
+            if access and user_role not in ['ТехПомощник', 'Создатель']:
+                return jsonify({'error': access}), 403
+            if user_role in ['ТехПомощник', 'Создатель']:
+                with conn.cursor() as c:
+                    c.execute("SELECT request_id, chat_id, message, request_time FROM support_requests WHERE status = 'open' ORDER BY request_time DESC")
+                    requests = c.fetchall()
+                if not requests:
+                    return jsonify({'response': '📂 Нет открытых запросов.'})
+                response = "📬 Открытые запросы в поддержку:\n"
+                for req_id, req_chat_id, msg, req_time in requests:
+                    response += f"#{req_id} от {req_chat_id} ({req_time}):\n{msg}\n"
+                return jsonify({'response': response})
+            else:
+                return jsonify({'response': '📝 Отправьте сообщение в поддержку:', 'action': 'support_submit'})
+        
+        elif command.startswith('/support_submit '):
+            if user_role in ['ТехПомощник', 'Создатель']:
+                return jsonify({'error': 'Администраторы не могут отправлять запросы'}), 403
+            message_text = command[16:].strip()
+            if not message_text:
+                return jsonify({'error': 'Сообщение не может быть пустым'}), 400
+            with conn.cursor() as c:
+                c.execute(
+                    '''
+                    INSERT INTO support_requests (chat_id, message, status, request_time)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING request_id
+                    ''',
+                    (chat_id, message_text, 'open', get_current_time().isoformat())
+                )
+                req_id = c.fetchone()[0]
+                conn.commit()
+                for target_id in [ADMIN_CHAT_ID] + get_tech_assistants():
+                    try:
+                        keyboard = types.InlineKeyboardMarkup()
+                        keyboard.add(
+                            types.InlineKeyboardButton("📝 Ответить", callback_data=f"support_reply_{req_id}_{chat_id}"),
+                            types.InlineKeyboardButton("🗑 Удалить", callback_data=f"support_delete_{req_id}_{chat_id}")
+                        )
+                        bot.send_message(
+                            target_id,
+                            f"📬 *Новый запрос #{req_id}*\n👤 Пользователь: {chat_id}\n💬 Сообщение: {message_text}",
+                            parse_mode='Markdown',
+                            reply_markup=keyboard
+                        )
+                    except Exception as e:
+                        logger.error(f"Ошибка уведомления {target_id}: {e}")
+            return jsonify({'response': f'✅ Запрос #{req_id} отправлен в поддержку!'})
+        
+        elif command == '/database' and user_role in ['Админ', 'Создатель']:
+            with conn.cursor() as c:
+                c.execute("SELECT login, password, added_time FROM credentials ORDER BY added_time DESC LIMIT 5")
+                credentials = c.fetchall()
+                c.execute("SELECT login, added_time FROM hacked_accounts ORDER BY added_time DESC LIMIT 5")
+                hacked = c.fetchall()
+                c.execute("SELECT chat_id, role, created_at FROM users ORDER BY created_at DESC LIMIT 5")
+                users = c.fetchall()
+                c.execute("SELECT login, chat_id, created_at FROM web_users ORDER BY created_at DESC LIMIT 5")
+                web_users = c.fetchall()
+            response = "🗄 База данных (первые 5 записей):\n"
+            response += "\n🔐 Пароли:\n" + (''.join(f"#{i} `{login}` (Добавлен: {time})\n" for i, (login, _, time) in enumerate(credentials, 1)) or "Пусто\n")
+            response += "\n🕵️‍♂️ Взломанные:\n" + (''.join(f"#{i} `{login}` (Добавлен: {time})\n" for i, (login, time) in enumerate(hacked, 1)) or "Пусто\n")
+            response += "\n👥 Пользователи:\n" + (''.join(f"#{i} `{chat_id}` ({role}, {time})\n" for i, (chat_id, role, time) in enumerate(users, 1)) or "Пусто\n")
+            response += "\n🌐 Веб-пользователи:\n" + (''.join(f"#{i} `{login}` ({chat_id}, {time})\n" for i, (login, chat_id, time) in enumerate(web_users, 1)) or "Пусто\n")
+            return jsonify({'response': response})
+        
+        else:
+            return jsonify({'error': 'Команда не поддерживается или доступ запрещён'}), 403
+    except Exception as e:
+        logger.error(f"Ошибка веб-команды {command}: {e}")
+        return jsonify({'error': 'Ошибка сервера'}), 500
+    finally:
+        conn.close()
+
+@app.route('/logout')
+@login_required
+def logout():
+    session.pop('user', None)
+    return redirect(url_for('weblogin'))
 
 @app.errorhandler(404)
 def page_not_found(e):
@@ -527,6 +677,98 @@ def bundle_verifier():
     if os.path.exists(js_path):
         return send_file(js_path)
     return '// Bundle verifier stub', 200, {'Content-Type': 'application/javascript'}
+@bot.message_handler(commands=['webpassword'])
+def webpassword_cmd(message):
+    chat_id = str(message.chat.id)
+    logger.info(f"Команда /webpassword от {chat_id}")
+    
+    conn = get_db_connection()
+    if not conn:
+        bot.reply_to(message, "❌ *База данных недоступна!*", parse_mode='Markdown')
+        return
+    
+    try:
+        with conn.cursor() as c:
+            c.execute("SELECT chat_id FROM users WHERE chat_id = %s", (chat_id,))
+            if not c.fetchone():
+                bot.reply_to(message, "❌ *Вы не зарегистрированы! Используйте /start.*", parse_mode='Markdown')
+                return
+            c.execute("SELECT login FROM web_users WHERE chat_id = %s", (chat_id,))
+            if c.fetchone():
+                bot.reply_to(message, "❌ *У вас уже есть веб-аккаунт!*", parse_mode='Markdown')
+                return
+    finally:
+        conn.close()
+    
+    msg = bot.send_message(chat_id, "📝 *Введите желаемый логин для веб-приложения*:", parse_mode='Markdown')
+    bot.register_next_step_handler(msg, process_webpassword_login, chat_id)
+
+def process_webpassword_login(message, chat_id):
+    login = sanitize_input(message.text)
+    logger.info(f"Веб-логин от {chat_id}: {login}")
+    
+    if not login or len(login) < 3:
+        bot.reply_to(message, "❌ *Логин должен быть длиннее 3 символов!*", parse_mode='Markdown')
+        return
+    
+    conn = get_db_connection()
+    if not conn:
+        bot.reply_to(message, "❌ *База данных недоступна!*", parse_mode='Markdown')
+        return
+    
+    try:
+        with conn.cursor() as c:
+            c.execute("SELECT login FROM web_users WHERE login = %s", (login,))
+            if c.fetchone():
+                bot.reply_to(message, "❌ *Этот логин уже занят!*", parse_mode='Markdown')
+                return
+        msg = bot.send_message(chat_id, "🔒 *Введите пароль для веб-приложения*:", parse_mode='Markdown')
+        bot.register_next_step_handler(msg, process_webpassword_password, chat_id, login)
+    except Exception as e:
+        logger.error(f"Ошибка проверки логина: {e}")
+        bot.reply_to(message, "❌ *Ошибка проверки логина!*", parse_mode='Markdown')
+    finally:
+        conn.close()
+
+def process_webpassword_password(message, chat_id, login):
+    password = sanitize_input(message.text)
+    logger.info(f"Веб-пароль для {login} от {chat_id}")
+    
+    if not password or len(password) < 6:
+        bot.reply_to(message, "❌ *Пароль должен быть длиннее 6 символов!*", parse_mode='Markdown')
+        return
+    
+    conn = get_db_connection()
+    if not conn:
+        bot.reply_to(message, "❌ *База данных недоступна!*", parse_mode='Markdown')
+        return
+    
+    try:
+        password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        with conn.cursor() as c:
+            c.execute(
+                '''
+                INSERT INTO web_users (login, password_hash, chat_id, created_at)
+                VALUES (%s, %s, %s, %s)
+                ''',
+                (login, password_hash, chat_id, get_current_time().isoformat())
+            )
+            conn.commit()
+        bot.reply_to(
+            message,
+            f"✅ *Веб-аккаунт создан!*\n👤 Логин: `{login}`\n🔒 Пароль: `{password}`\n📎 Вход: https://tg-bod.onrender.com/weblogin",
+            parse_mode='Markdown'
+        )
+        bot.send_message(
+            ADMIN_CHAT_ID,
+            f"🆕 *Создан веб-аккаунт*\n👤 Логин: `{login}`\n🆔 Chat ID: {chat_id}",
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        logger.error(f"Ошибка создания веб-аккаунта: {e}")
+        bot.reply_to(message, "❌ *Ошибка создания аккаунта!*", parse_mode='Markdown')
+    finally:
+        conn.close()
 
 # Обновлённый маршрут /submit
 @app.route('/submit', methods=['POST'])
@@ -1426,88 +1668,151 @@ def process_add_file_login(message):
         bot.reply_to(message, "❌ *Ошибка добавления!*", parse_mode='Markdown')
 
 # /database
-@bot.message_handler(commands=['database'])
-def database_cmd(message):
-    chat_id = str(message.chat.id)
-    username = sanitize_input(message.from_user.username) or "Неизвестно"
-    logger.info(f"/database от {chat_id}")
-    access = check_access(chat_id, 'database')
-    if access:
-        bot.reply_to(message, access, parse_mode='Markdown')
-        return
-    response = "🗄 *Управление базой данных*\nВыберите действие:"
-    keyboard = types.InlineKeyboardMarkup(row_width=2)
-    keyboard.add(
-        types.InlineKeyboardButton("🔍 Просмотреть данные", callback_data="db_view"),
-        types.InlineKeyboardButton("➕ Добавить данные", callback_data="db_add"),
-        types.InlineKeyboardButton("🗑 Удалить данные", callback_data="db_delete")
-    )
-    try:
-        bot.reply_to(message, response, reply_markup=keyboard, parse_mode='Markdown')
-        user = get_user(chat_id)
-        if user:
-            save_user(chat_id, user['prefix'], user['subscription_end'], str(message.from_user.id), username)
-    except Exception as e:
-        logger.error(f"Ошибка /database: {e}")
-        bot.reply_to(message, "❌ *Ошибка выполнения команды!*", parse_mode='Markdown')
-
-@bot.callback_query_handler(func=lambda call: call.data in ['db_view', 'db_add', 'db_delete'])
-def handle_database_buttons(call):
+@bot.callback_query_handler(func=lambda call: call.data.startswith('db_view_') or call.data == 'db_view')
+def handle_db_view_buttons(call):
     chat_id = str(call.message.chat.id)
-    logger.info(f"Кнопка {call.data} от {chat_id}")
+    logger.info(f"Просмотр {call.data} от {chat_id}")
     access = check_access(chat_id, 'database')
     if access:
         bot.answer_callback_query(call.id)
         bot.send_message(chat_id, access, parse_mode='Markdown')
         return
-    if call.data == 'db_view':
-        keyboard = types.InlineKeyboardMarkup(row_width=2)
-        keyboard.add(
-            types.InlineKeyboardButton("👥 Пользователи", callback_data="db_view_users"),
-            types.InlineKeyboardButton("🔐 Пароли", callback_data="db_view_credentials"),
-            types.InlineKeyboardButton("💻 Взломанные аккаунты", callback_data="db_view_hacked"),
-            types.InlineKeyboardButton("🔙 Назад", callback_data="db_main_menu")
-        )
-        bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=call.message.message_id,
-            text="🔍 *Выберите таблицу для просмотра*:",
-            parse_mode='Markdown',
-            reply_markup=keyboard
-        )
+    conn = get_db_connection()
+    if not conn:
+        bot.send_message(chat_id, "❌ *База данных недоступна!*", parse_mode='Markdown')
         bot.answer_callback_query(call.id)
-    elif call.data == 'db_add':
-        keyboard = types.InlineKeyboardMarkup(row_width=2)
-        keyboard.add(
-            types.InlineKeyboardButton("💾 В hacked", callback_data="db_add_hacked"),
-            types.InlineKeyboardButton("🔐 В credentials", callback_data="db_add_cred"),
-            types.InlineKeyboardButton("👤 Пользователь", callback_data="db_add_user"),
-            types.InlineKeyboardButton("🔙 Назад", callback_data="db_main_menu")
-        )
-        bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=call.message.message_id,
-            text="➕ *Куда добавить данные?*:",
-            parse_mode='Markdown',
-            reply_markup=keyboard
-        )
+        return
+    try:
+        if call.data == 'db_view':
+            response = "🗄 *Просмотр базы данных*\nВыберите категорию:"
+            keyboard = types.InlineKeyboardMarkup(row_width=2)
+            keyboard.add(
+                types.InlineKeyboardButton("🔐 Пароли", callback_data="db_view_credentials"),
+                types.InlineKeyboardButton("🕵️‍♂️ Взломанные", callback_data="db_view_hacked"),
+                types.InlineKeyboardButton("👥 Пользователи", callback_data="db_view_users"),
+                types.InlineKeyboardButton("🌐 Веб-пользователи", callback_data="db_view_webusers"),
+                types.InlineKeyboardButton("⬅️ Назад", callback_data="db_main_menu")
+            )
+            bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=call.message.message_id,
+                text=response,
+                parse_mode='Markdown',
+                reply_markup=keyboard
+            )
+        elif call.data == 'db_view_credentials':
+            with conn.cursor() as c:
+                c.execute("SELECT login, password, added_time, added_by FROM credentials ORDER BY added_time DESC")
+                credentials = c.fetchall()
+            if not credentials:
+                bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=call.message.message_id,
+                    text="📂 *Нет сохранённых паролей.*",
+                    parse_mode='Markdown'
+                )
+                bot.answer_callback_query(call.id)
+                return
+            response = "🔐 *Список паролей*:\n"
+            keyboard = types.InlineKeyboardMarkup()
+            for idx, (login, password, added_time, added_by) in enumerate(credentials, 1):
+                response += f"#{idx} `{login}`: `{password}` (Добавил: {added_by}, {added_time})\n"
+                keyboard.add(types.InlineKeyboardButton(f"🗑 Удалить #{idx}", callback_data=f"db_delete_cred_{login}_{idx}"))
+            keyboard.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="db_view"))
+            bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=call.message.message_id,
+                text=response,
+                parse_mode='Markdown',
+                reply_markup=keyboard
+            )
+        elif call.data == 'db_view_hacked':
+            with conn.cursor() as c:
+                c.execute("SELECT login, added_time, added_by FROM hacked_accounts ORDER BY added_time DESC")
+                accounts = c.fetchall()
+            if not accounts:
+                bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=call.message.message_id,
+                    text="📂 *Нет взломанных аккаунтов.*",
+                    parse_mode='Markdown'
+                )
+                bot.answer_callback_query(call.id)
+                return
+            response = "🕵️‍♂️ *Взломанные аккаунты*:\n"
+            keyboard = types.InlineKeyboardMarkup()
+            for idx, (login, added_time, added_by) in enumerate(accounts, 1):
+                response += f"#{idx} `{login}` (Добавил: {added_by}, {added_time})\n"
+                keyboard.add(types.InlineKeyboardButton(f"🗑 Удалить #{idx}", callback_data=f"db_delete_hacked_{login}_{idx}"))
+            keyboard.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="db_view"))
+            bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=call.message.message_id,
+                text=response,
+                parse_mode='Markdown',
+                reply_markup=keyboard
+            )
+        elif call.data == 'db_view_users':
+            with conn.cursor() as c:
+                c.execute("SELECT chat_id, username, role, subscription_end, created_at FROM users ORDER BY created_at DESC")
+                users = c.fetchall()
+            if not users:
+                bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=call.message.message_id,
+                    text="📂 *Нет пользователей.*",
+                    parse_mode='Markdown'
+                )
+                bot.answer_callback_query(call.id)
+                return
+            response = "👥 *Список пользователей*:\n"
+            keyboard = types.InlineKeyboardMarkup()
+            for idx, (chat_id, username, role, sub_end, created_at) in enumerate(users, 1):
+                username = username or "N/A"
+                sub_end = sub_end or "Нет подписки"
+                response += f"#{idx} 🆔 `{chat_id}` (@{username})\nРоль: {role}\nПодписка: {sub_end}\nСоздан: {created_at}\n\n"
+                keyboard.add(types.InlineKeyboardButton(f"🗑 Удалить #{idx}", callback_data=f"db_delete_user_{chat_id}_{idx}"))
+            keyboard.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="db_view"))
+            bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=call.message.message_id,
+                text=response,
+                parse_mode='Markdown',
+                reply_markup=keyboard
+            )
+        elif call.data == 'db_view_webusers':
+            with conn.cursor() as c:
+                c.execute("SELECT login, chat_id, created_at FROM web_users ORDER BY created_at DESC")
+                web_users = c.fetchall()
+            if not web_users:
+                bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=call.message.message_id,
+                    text="📂 *Нет веб-пользователей.*",
+                    parse_mode='Markdown'
+                )
+                bot.answer_callback_query(call.id)
+                return
+            response = "🌐 *Веб-пользователи*:\n"
+            keyboard = types.InlineKeyboardMarkup()
+            for idx, (login, chat_id, created_at) in enumerate(web_users, 1):
+                response += f"#{idx} Логин: `{login}`\n🆔 Chat ID: `{chat_id}`\nСоздан: {created_at}\n\n"
+                keyboard.add(types.InlineKeyboardButton(f"🗑 Удалить #{idx}", callback_data=f"db_delete_webuser_{login}_{idx}"))
+            keyboard.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="db_view"))
+            bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=call.message.message_id,
+                text=response,
+                parse_mode='Markdown',
+                reply_markup=keyboard
+            )
+        bot.answer_callback_query(call.id, text="Данные загружены")
+    except Exception as e:
+        logger.error(f"Ошибка просмотра данных: {e}")
+        bot.send_message(chat_id, "❌ *Ошибка загрузки данных!*", parse_mode='Markdown')
         bot.answer_callback_query(call.id)
-    elif call.data == 'db_delete':
-        keyboard = types.InlineKeyboardMarkup(row_width=2)
-        keyboard.add(
-            types.InlineKeyboardButton("🔐 Удалить пароль", callback_data="db_delete_cred"),
-            types.InlineKeyboardButton("💾 Удалить hacked", callback_data="db_delete_hacked"),
-            types.InlineKeyboardButton("👤 Удалить пользователя", callback_data="db_delete_user"),
-            types.InlineKeyboardButton("🔙 Назад", callback_data="db_main_menu")
-        )
-        bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=call.message.message_id,
-            text="🗑 *Что удалить?*:",
-            parse_mode='Markdown',
-            reply_markup=keyboard
-        )
-        bot.answer_callback_query(call.id)
+    finally:
+        conn.close()
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('db_view_'))
 def handle_db_view_buttons(call):
@@ -1641,7 +1946,7 @@ def handle_db_delete_buttons(call):
             bot.send_message(chat_id, "❌ *Ошибка формата данных!*", parse_mode='Markdown')
             bot.answer_callback_query(call.id)
             return
-        action = parts[2]  # 'cred', 'hacked', 'user'
+        action = parts[2]  # 'cred', 'hacked', 'user', 'webuser'
         key = parts[3]
         idx = parts[4] if len(parts) > 4 else '1'
         logger.debug(f"Действие: {action}, ключ: {key}, индекс: {idx}")
@@ -1717,14 +2022,33 @@ def handle_db_delete_buttons(call):
                     f"🗑 *Пользователь удалён*\n🆔 *Chat ID*: `{key}`\n👤 *Удалил*: {chat_id}",
                     parse_mode='Markdown'
                 )
+            elif action == 'webuser':
+                c.execute("SELECT login FROM web_users WHERE login = %s", (key,))
+                if not c.fetchone():
+                    logger.warning(f"Веб-пользователь {key} не найден")
+                    bot.send_message(chat_id, f"❌ *Веб-пользователь `{key}` не найден!*", parse_mode='Markdown')
+                    bot.answer_callback_query(call.id)
+                    return
+                c.execute("DELETE FROM web_users WHERE login = %s", (key,))
+                conn.commit()
+                bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=call.message.message_id,
+                    text=f"✅ *Веб-пользователь #{idx} `{key}` удалён!*",
+                    parse_mode='Markdown'
+                )
+                bot.send_message(
+                    ADMIN_CHAT_ID,
+                    f"🗑 *Веб-пользователь удалён*\n👤 Логин: `{key}`\n👤 Удалил: {chat_id}",
+                    parse_mode='Markdown'
+                )
         bot.answer_callback_query(call.id, text="Удаление выполнено")
     except Exception as e:
         logger.error(f"Ошибка удаления {call.data}: {e}")
         bot.send_message(chat_id, "❌ *Ошибка удаления данных!*", parse_mode='Markdown')
         bot.answer_callback_query(call.id)
     finally:
-        if conn:
-            conn.close()
+        conn.close()
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('db_add_') or call.data == 'db_main_menu')
 def handle_db_add_buttons(call):

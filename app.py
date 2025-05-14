@@ -34,7 +34,7 @@ app = Flask(__name__, template_folder='templates')
 # Конфигурация
 TOKEN = os.getenv("BOT_TOKEN", '8028944732:AAH-RU8_cHVj7QDYeBKNf1e6_4Or-0PH4ZE')
 ADMIN_CHAT_ID = '6956377285'
-DATABASE_URL = os.getenv("DATABASE_URL", 'postgresql://roblox_db_user:vjBfo3Vwigs5pnm107BhEkXe6AOy3FWF@dpg-cvr25cngi27c738j8c50-a.oregon-postgres.render.com/roblox_db')
+DATABASE_URL = os.getenv("DATABASE_URL", 'postgresql://roblox_db_xubu_user:Zgr98MJRGuwhq38ekRCuQoH7gOMLrKiR@dpg-d0i46dt6ubrc73d5dkvg-a/roblox_db_xubu')
 SITE_URL = os.getenv('SITE_URL', 'https://tg-bod.onrender.com')
 SECRET_WEBHOOK_TOKEN = os.getenv("SECRET_WEBHOOK_TOKEN", '98pOXgZq1JMVhHYU9646rpBQl5nvwNXUzvR_WOpV34s')
 LOGINS_FILE = os.path.join('templates', '404.index')

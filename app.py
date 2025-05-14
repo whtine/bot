@@ -133,10 +133,11 @@ def init_db():
     conn = get_db_connection()
     if not conn:
         logger.error("Не удалось подключиться к базе данных для инициализации")
-        return
+        return False
     try:
         with conn.cursor() as c:
-            # Существующие таблицы (users, credentials, hacked_accounts, support_requests)
+            # Создание таблицы users
+            logger.debug("Создание таблицы users")
             c.execute('''
                 CREATE TABLE IF NOT EXISTS users (
                     chat_id TEXT PRIMARY KEY,
@@ -146,6 +147,8 @@ def init_db():
                     created_at TEXT NOT NULL
                 )
             ''')
+            # Создание таблицы credentials
+            logger.debug("Создание таблицы credentials")
             c.execute('''
                 CREATE TABLE IF NOT EXISTS credentials (
                     login TEXT PRIMARY KEY,
@@ -154,6 +157,8 @@ def init_db():
                     added_by TEXT NOT NULL
                 )
             ''')
+            # Создание таблицы hacked_accounts
+            logger.debug("Создание таблицы hacked_accounts")
             c.execute('''
                 CREATE TABLE IF NOT EXISTS hacked_accounts (
                     login TEXT PRIMARY KEY,
@@ -161,6 +166,8 @@ def init_db():
                     added_by TEXT NOT NULL
                 )
             ''')
+            # Создание таблицы support_requests
+            logger.debug("Создание таблицы support_requests")
             c.execute('''
                 CREATE TABLE IF NOT EXISTS support_requests (
                     request_id SERIAL PRIMARY KEY,
@@ -173,33 +180,26 @@ def init_db():
                     response_time TEXT
                 )
             ''')
-            # Новая таблица для веб-паролей
+            # Создание таблицы web_users
+            logger.debug("Создание таблицы web_users")
             c.execute('''
                 CREATE TABLE IF NOT EXISTS web_users (
                     login TEXT PRIMARY KEY,
                     password_hash TEXT NOT NULL,
                     chat_id TEXT NOT NULL,
                     created_at TEXT NOT NULL,
-                    FOREIGN KEY (chat_id) REFERENCES users (chat_id)
+                    CONSTRAINT fk_chat_id FOREIGN KEY (chat_id) REFERENCES users (chat_id) ON DELETE CASCADE
                 )
             ''')
             conn.commit()
-            logger.info("База данных инициализирована")
+            logger.info("База данных инициализирована успешно")
+            return True
     except Exception as e:
-        logger.error(f"Ошибка инициализации базы данных: {e}")
+        logger.error(f"Ошибка инициализации базы данных: {str(e)}")
+        return False
     finally:
-        conn.close()
-
-# Поддержание активности
-def keep_alive():
-    logger.info("Запуск keep_alive")
-    while True:
-        try:
-            response = requests.get(SITE_URL, timeout=10)
-            logger.debug(f"Пинг {SITE_URL}: {response.status_code}")
-        except Exception as e:
-            logger.error(f"Ошибка keep_alive: {e}")
-        time.sleep(60)
+        if conn:
+            conn.close()
 
 # Получение данных пользователя
 def get_user(chat_id):
@@ -2946,18 +2946,12 @@ def handle_text(message):
 # Инициализация и запуск
 if __name__ == "__main__":
     logger.info("Запуск бота")
+    if not init_db():
+        logger.error("Критическая ошибка запуска: Не удалось инициализировать базу данных")
+        sys.exit(1)  # Завершаем с кодом ошибки
+    logger.info("Бот запущен, начинаем polling")
     try:
-        if not init_db():
-            logger.error("Ошибка инициализации базы")
-            raise Exception("Не удалось инициализировать базу данных")
-        threading.Thread(target=keep_alive, daemon=True).start()
-        logger.info("Установка вебхука")
-        bot.remove_webhook()
-        time.sleep(1)
-        webhook_url = f"{SITE_URL}/webhook"
-        bot.set_webhook(url=webhook_url, secret_token=SECRET_WEBHOOK_TOKEN)
-        logger.info(f"Вебхук установлен: {webhook_url}")
-        app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
+        bot.polling(none_stop=True)
     except Exception as e:
-        logger.error(f"Критическая ошибка запуска: {e}")
-        raise
+        logger.error(f"Ошибка polling: {str(e)}")
+        sys.exit(1)

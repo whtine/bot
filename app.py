@@ -462,11 +462,6 @@ def index():
     logger.info("Запрос на /")
     return render_template('index.html')
 
-@app.route('/', endpoint='index')
-def index():
-    logger.info("Запрос на /")
-    return render_template('index.html')
-
 @app.route('/telegram-main', endpoint='telegram_main')
 def telegram_main():
     logger.info("Запрос на /telegram-main")
@@ -506,6 +501,7 @@ def hot_right_now():
 def top_revisited():
     logger.info("Запрос на /toprevisted")
     return render_template('toprevisted.html')
+
 
 @app.errorhandler(404)
 def page_not_found(e):

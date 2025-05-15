@@ -4,6 +4,7 @@ import telebot
 from telebot import types
 import psycopg2
 import os
+import sys
 import requests
 import threading
 import time
@@ -456,6 +457,22 @@ def index():
     logger.info("Запрос на /")
     return render_template('index.html')
 
+@app.route('/delete_webhook', methods=['GET'])
+def delete_webhook():
+    try:
+        bot.remove_webhook()
+        logger.info("Вебхук успешно удалён через /delete_webhook")
+        return jsonify({
+            "status": "success",
+            "message": "Webhook deleted successfully"
+        }), 200
+    except Exception as e:
+        logger.error(f"Ошибка удаления вебхука: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": f"Failed to delete webhook: {str(e)}"
+        }), 500
+
 @app.route('/telegram-main', endpoint='telegram_main')
 def telegram_main():
     logger.info("Запрос на /telegram-main")
@@ -495,6 +512,18 @@ def hot_right_now():
 def top_revisited():
     logger.info("Запрос на /toprevisted")
     return render_template('toprevisted.html')
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        logger.info("Получено обновление через вебхук")
+        return 'OK', 200
+    else:
+        logger.warning("Неверный content-type в запросе вебхука")
+        return 'Invalid content type', 403
 
 def login_required(f):
     @wraps(f)
@@ -2948,10 +2977,18 @@ if __name__ == "__main__":
     logger.info("Запуск бота")
     if not init_db():
         logger.error("Критическая ошибка запуска: Не удалось инициализировать базу данных")
-        sys.exit(1)  # Завершаем с кодом ошибки
-    logger.info("Бот запущен, начинаем polling")
-    try:
-        bot.polling(none_stop=True)
-    except Exception as e:
-        logger.error(f"Ошибка polling: {str(e)}")
         sys.exit(1)
+    
+    # Настройка вебхука
+    WEBHOOK_URL = os.getenv('WEBHOOK_URL', 'https://tg-bod.onrender.com/webhook')
+    try:
+        bot.remove_webhook()  # Удаляем старый вебхук
+        bot.set_webhook(url=WEBHOOK_URL)
+        logger.info(f"Вебхук установлен: {WEBHOOK_URL}")
+    except Exception as e:
+        logger.error(f"Ошибка настройки вебхука: {str(e)}")
+        sys.exit(1)
+    
+    # Запуск Flask-сервера
+    logger.info("Запуск Flask-сервера")
+    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))

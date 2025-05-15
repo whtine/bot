@@ -861,37 +861,7 @@ def submit_login():
         logger.error(f"Общая ошибка обработки формы: {e}")
         return redirect(url_for('show_404'))
 
-@app.route('/webhook', methods=['POST'])
 @rate_limited_endpoint
-def webhook():
-    client_ip = request.headers.get('X-Forwarded-For', request.remote_addr).split(',')[0].strip()
-    if not is_telegram_ip(client_ip):
-        logger.warning(f"Чужой IP: {client_ip}")
-        abort(403)
-    if request.headers.get('X-Telegram-Bot-Api-Secret-Token') != SECRET_WEBHOOK_TOKEN:
-        logger.warning("Неверный токен")
-        abort(403)
-    if request.headers.get('content-type') != 'application/json':
-        logger.warning("Неверный content-type")
-        abort(400)
-    try:
-        update = telebot.types.Update.de_json(request.get_data().decode('utf-8'))
-        if not update or not (update.message or update.callback_query):
-            logger.debug("Пустое обновление")
-            return 'OK', 200
-        update_id = update.update_id
-        if update_id in processed_updates:
-            logger.info(f"Повтор: {update_id}")
-            return 'OK', 200
-        processed_updates.add(update_id)
-        if len(processed_updates) > 1000:  # Очистка старых update_id
-            processed_updates.clear()
-        logger.info(f"Обработка: {update_id}")
-        threading.Thread(target=bot.process_new_updates, args=([update],)).start()
-        return 'OK', 200
-    except Exception as e:
-        logger.error(f"Ошибка вебхука: {e}")
-        return 'OK', 200
 
 # /start
 @bot.message_handler(commands=['start'])

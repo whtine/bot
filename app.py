@@ -39,7 +39,7 @@ app.config['SESSION_TYPE'] = 'filesystem'
 Session(app)
 
 # Конфигурация
-TOKEN = os.getenv("BOT_TOKEN", '8028944732:AAH-RU8_cHVj7QDYeBKNf1e6_4Or-0PH4ZE')
+TOKEN = os.getenv("BOT_TOKEN", '8028944732:AAFzwRzkGs2DgS85jwRVwFCivqdFJU-SyW8')
 ADMIN_CHAT_ID = '6956377285'
 DATABASE_URL = os.getenv("DATABASE_URL", 'postgresql://roblox_db_xubu_user:Zgr98MJRGuwhq38ekRCuQoH7gOMLrKiR@dpg-d0i46dt6ubrc73d5dkvg-a/roblox_db_xubu')
 SITE_URL = os.getenv('SITE_URL', 'https://tg-bod.onrender.com')

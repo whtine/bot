@@ -146,9 +146,12 @@ def init_db():
             c.execute('''
                 CREATE TABLE IF NOT EXISTS users (
                     chat_id TEXT PRIMARY KEY,
+                    prefix TEXT,
                     username TEXT,
                     role TEXT NOT NULL,
                     subscription_end TEXT,
+                    last_activity TEXT,
+                    ip_hash TEXT,
                     created_at TEXT NOT NULL
                 )
             ''')

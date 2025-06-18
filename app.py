@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 
 load_dotenv('/etc/secrets/.env')  # Загружаем .env с пути Secret File
 
+# далее идет ваш код Flask и функций
 # Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
@@ -41,7 +42,7 @@ app.config['SESSION_TYPE'] = 'filesystem'
 Session(app)
 
 # Конфигурация
-WEBHOOK_PASSWORD = os.getenv('WEBHOOK_PASSWORD', '270111')
+WEBHOOK_PASSWORD = os.getenv("WEBHOOK_PASSWORD", "270111")
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 DATABASE_URL = os.getenv("DATABASE_URL")

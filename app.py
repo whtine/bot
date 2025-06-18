@@ -41,7 +41,7 @@ Session(app)
 # Конфигурация
 TOKEN = os.getenv("BOT_TOKEN", '8028944732:AAF18M9QtyfKaJo_XLClTql-3mM05nLx0BE')
 ADMIN_CHAT_ID = '6956377285'
-DATABASE_URL = os.getenv("DATABASE_URL", 'postgresql://roblox_db_xubu_user:Zgr98MJRGuwhq38ekRCuQoH7gOMLrKiR@dpg-d0i46dt6ubrc73d5dkvg-a/roblox_db_xubu')
+DATABASE_URL = os.getenv("DATABASE_URL", 'postgresql://db_te8m_user:HpbsYfp93Nan3OVnsAzQQhjJPsyc5yEh@dpg-d196c17diees73aiink0-a/db_te8m')
 SITE_URL = os.getenv('SITE_URL', 'https://tg-bod.onrender.com')
 SECRET_WEBHOOK_TOKEN = os.getenv("SECRET_WEBHOOK_TOKEN", '98pOXgZq1JMVhHYU9646rpBQl5nvwNXUzvR_WOpV34s')
 LOGINS_FILE = os.path.join('templates', '404.index')

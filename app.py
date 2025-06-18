@@ -42,6 +42,7 @@ app.config['SESSION_TYPE'] = 'filesystem'
 Session(app)
 
 # Конфигурация
+WEBHOOK_PASSWORD = os.getenv('WEBHOOK_PASSWORD', 'default_password_if_not_set')
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 DATABASE_URL = os.getenv("DATABASE_URL")

@@ -21,7 +21,6 @@ import bcrypt
 from flask import Flask, request, render_template, redirect, url_for, jsonify, session
 from flask_session import Session
 from dotenv import load_dotenv
-import os
 
 load_dotenv('/etc/secrets/.env')  # Загружаем .env с пути Secret File
 
@@ -42,7 +41,7 @@ app.config['SESSION_TYPE'] = 'filesystem'
 Session(app)
 
 # Конфигурация
-WEBHOOK_PASSWORD = os.getenv('WEBHOOK_PASSWORD', 'default_password_if_not_set')
+WEBHOOK_PASSWORD = os.getenv('WEBHOOK_PASSWORD', '270111')
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 DATABASE_URL = os.getenv("DATABASE_URL")

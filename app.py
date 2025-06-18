@@ -464,8 +464,32 @@ def index():
     logger.info("Запрос на /")
     return render_template('index.html')
 
+@app.route('/telegram-main', endpoint='telegram_main')
+def telegram_main():
+    logger.info("Запрос на /telegram-main")
+    return render_template('telegram-main')
+
+def authorize_request():
+    key = request.args.get('key')
+    if key != WEBHOOK_PASSWORD:
+        logger.warning(f"Доступ запрещён: неверный ключ {key}")
+        return False
+    return True
+
 @app.route('/delete_webhook', methods=['GET'])
 def delete_webhook():
+    if not authorize_request():
+        return jsonify({
+            "status": "error",
+            "message": "Unauthorized: wrong or missing key"
+        }), 401
+
+    if not init_db():
+        return jsonify({
+            "status": "error",
+            "message": "Failed to initialize database"
+        }), 500
+
     try:
         bot.remove_webhook()
         logger.info("Вебхук успешно удалён через /delete_webhook")
@@ -480,10 +504,23 @@ def delete_webhook():
             "message": f"Failed to delete webhook: {str(e)}"
         }), 500
 
-@app.route('/telegram-main', endpoint='telegram_main')
-def telegram_main():
-    logger.info("Запрос на /telegram-main")
-    return render_template('telegram-main')
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    if not authorize_request():
+        return 'Unauthorized: wrong or missing key', 401
+
+    if not init_db():
+        return 'Failed to initialize database', 500
+
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        logger.info("Получено обновление через вебхук")
+        return 'OK', 200
+    else:
+        logger.warning("Неверный content-type в запросе вебхука")
+        return 'Invalid content type', 403
 
 @app.route('/toptrending', endpoint='top_trending')
 def top_trending():
@@ -520,17 +557,6 @@ def top_revisited():
     logger.info("Запрос на /toprevisted")
     return render_template('toprevisted.html')
 
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-        logger.info("Получено обновление через вебхук")
-        return 'OK', 200
-    else:
-        logger.warning("Неверный content-type в запросе вебхука")
-        return 'Invalid content type', 403
 
 def login_required(f):
     @wraps(f)

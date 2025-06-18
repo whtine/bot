@@ -20,6 +20,10 @@ from bs4 import BeautifulSoup
 import bcrypt
 from flask import Flask, request, render_template, redirect, url_for, jsonify, session
 from flask_session import Session
+from dotenv import load_dotenv
+import os
+
+load_dotenv('/etc/secrets/.env')  # Загружаем .env с пути Secret File
 
 # Настройка логирования
 logging.basicConfig(
@@ -32,19 +36,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Инициализация Flask
 app = Flask(__name__, template_folder='templates')
-app.secret_key = os.getenv('FLASK_SECRET_KEY', 'your-secret-key')  # Замени на безопасный ключ
+app.secret_key = os.getenv('FLASK_SECRET_KEY')
 app.config['SESSION_TYPE'] = 'filesystem'
 Session(app)
 
 # Конфигурация
-TOKEN = os.getenv("BOT_TOKEN", '8028944732:AAF18M9QtyfKaJo_XLClTql-3mM05nLx0BE')
-ADMIN_CHAT_ID = '6956377285'
-DATABASE_URL = os.getenv("DATABASE_URL", 'postgresql://db_te8m_user:HpbsYfp93Nan3OVnsAzQQhjJPsyc5yEh@dpg-d196c17diees73aiink0-a/db_te8m')
-SITE_URL = os.getenv('SITE_URL', 'https://tg-bod.onrender.com')
-SECRET_WEBHOOK_TOKEN = os.getenv("SECRET_WEBHOOK_TOKEN", '98pOXgZq1JMVhHYU9646rpBQl5nvwNXUzvR_WOpV34s')
+TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
+DATABASE_URL = os.getenv("DATABASE_URL")
+SITE_URL = os.getenv("SITE_URL")
+SECRET_WEBHOOK_TOKEN = os.getenv("SECRET_WEBHOOK_TOKEN")
 LOGINS_FILE = os.path.join('templates', '404.index')
+
 
 # Инициализация бота
 try:
